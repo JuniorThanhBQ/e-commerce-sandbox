@@ -1,0 +1,45 @@
+name: Psalm Security Scan for PHP
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/psalm.yml'
+      - '.github/scripts/psalm.sh'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/psalm.yml'
+      - '.github/scripts/psalm.sh'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: psalm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  psalm:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Psalm
+        id: scan
+        run: bash .github/scripts/psalm.sh
+
+      - name: Upload Psalm SARIF
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_ready == 'true' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ runner.temp }}/psalm.sarif
+          category: psalm
