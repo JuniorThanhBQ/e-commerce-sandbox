@@ -1,0 +1,99 @@
+name: E-Commerce Continuous Integration Workflow
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Verify Laravel Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: app
+
+    env:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ":memory:"
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: log
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: "8.5"
+          extensions: mbstring, dom, xml, curl, zip, intl, bcmath, pdo_sqlite
+          tools: composer:v2
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: |
+          composer install \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress \
+            --no-scripts \
+            --optimize-autoloader
+
+      - name: Verify PHP platform
+        run: composer check-platform-reqs
+
+      - name: Verify Composer autoload
+        run: |
+          php -r 'require "vendor/autoload.php"; echo "Autoload OK\n";'
+
+      - name: Generate temporary CI key
+        run: |
+          echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
+      - name: Discover Laravel packages
+        run: php artisan package:discover --ansi
+
+      - name: Verify Laravel bootstrap
+        run: php artisan --version
+
+      - name: Verify Laravel routes
+        run: php artisan route:list
+
+      - name: Compile Laravel views
+        run: php artisan view:cache
+
+      - name: Setup Node.js
+        if: ${{ hashFiles('app/package-lock.json') != '' }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0  
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install frontend dependencies
+        if: ${{ hashFiles('app/package-lock.json') != '' }}
+        run: npm ci
+
+      - name: Build frontend assets
+        if: ${{ hashFiles('app/package-lock.json') != '' }}
+        run: npm run build
